@@ -1,7 +1,7 @@
 import kata._
 class BNa(
-  val xn: Int, val eps:T= 0.001f,
-  val rho1:T = 0.9f, val rho2:T= 0.999f) extends Layer {
+  val xn: Int,
+  val eps:T= 0.001f,  val rho1:T = 0.9f, val rho2:T= 0.999f) extends Layer {
   var gamma = new Array[T](xn).map(_ => 1:T)
   var beta = new Array[T](xn)
   var dgamma = new Array[T](gamma.size)
@@ -105,15 +105,17 @@ class BNa(
 }
 
 class GNa(
-  val xn:Int, // 100
+  val xn:Int,
+  val W:Int,
+  val H:Int,2
   val gs:Int,//チャンネルを何分割するか
   val IC:Int = 1,//input chanel
   val eps:T  = 0.001f,
   val rho1:T = 0.9f,
   val rho2:T = 0.999f
 )extends Layer{
-  var gamma = new Array[T](xn)
-  var beta  = new Array[T](xn)
+  var gamma = new Array[T](xn,gs)
+  var beta  = new Array[T](xn,gs)
   val delta = 1e-8f
   val adam_gamma = new Adam(gamma.size,eps,rho1,rho2)
   val adam_beta  = new Adam(beta.size,eps,rho1,rho2)
@@ -133,38 +135,46 @@ class GNa(
   }
 
   override def forward(xs:Array[Array[T]]):Array[Array[T]]={
-    var y = List[Array[T]](xs.size)
-    //まずはチャンネルごとにわける
+    var y       = List[Array[T]]()
+    var t_myu   = Array.ofDim[T](gs)
+    var t_sigma = Array.ofDim[T](gs)
+    var t_xhat  = Array.ofDim[T](W*H*IC)
+    
     for(x <- xs){
-      var dy = List[Array[T]](xs.size)
-      val xsize=x.size/IC
-      var cdrop:Array[T] = null
-      cdrop = x.clone
+      for(ch<- 0 until IC){
+        val head = ch * W * H
+        for(j<-0 until gs){
+          val ghead = W*H/gs * j
+          var sum =0f
+          for(i <- 0 until W*H/gs){
+            sum += x(head+ghead+i)
+          }
+          t_myu(j) = sum / W*H/gs
 
-      for(cn <- 0 until IC){
-        val cdate = cdrop.take(xsize)//チャンネルを取り出す
-        cdro  = x.drop(xsize)//残りを保存
-        var cy = List[Array[T]](xs.size)
-        var ddrop:Array[T] = null
-        ddrop = cdrop.clone
-        for(i <- 0 until gs){
-          val gndate = ddrop.take(ddrop.size/gs)
-          ddrop=ddrop.drop(ddrop.size/gs)
-          val t_myu   = gndate.sum / gndate.size
-          val t_sigma = gndate.map((_ - t_myu)*(_ - t_myu)).sum / gndate.size
-          val t_xhat  = gndate.map((_-t_myu)/sqrt(t_sigma + delta))
-          val t_y     = gamma.zip(t_xhat).map{case(a,b)=>a*b}.zip(beta).map{case(a,b)=>a+b}
-          cy ::= t_y//group Array
+          sum = 0f
+          for(i <- 0 until W*H/gs){
+            sum += (x(head+ghead+i)-t_myu(j)) * (x(head+ghead+i)-t_myu(j))
+          }
+
+          t_sigma(j) = sqrt(sum/(W*H/gs)+eps)
+
+          for(i <- 0 until W*H/gs){
+            t_xhat(head+ghead+i) = (x(head+ghead+i)-t_myu(j))/t_sigma(j)
+          }
+
         }
-        dy ::= cy.toArray.flatten
+
       }
-      y ::= dy
+      for(){
+        //最後 γ、βの計算を考える
+        //上のγ、βの形を考える
+      }
     }
-    y.toArray
   }
 
-  def backward():Array
-  }
+  override def backward(d:Array[Array[T]]):Array[Array[T]]={//*
+
+  }//*
 }
 
 object test{
