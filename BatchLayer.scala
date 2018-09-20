@@ -65,7 +65,7 @@ class BNa(
       }
 
       var d1 = new Array[T](m)
-      var d2 = 0d
+      var d2 = 0f
       for (i <- 0 until m) {
         d1(i) = gamma(j) * ds(i)(j)
         d2 += xmu(i)(j) * d1(i)
@@ -73,11 +73,12 @@ class BNa(
 
       val d3 = -d2 / (sigma(j) * sigma(j))
       val d4 = d3 / (2 * sigma(j))
+      val d5 = d4 / m
 
       var d8 = 0:T
       var d10 = new Array[T](m)
       for (i <- 0 until m) {
-        val d5 = d4 / m
+        
         val d6 = 2 * xmu(i)(j) * d5
         val d7 = d1(i) / sigma(j)
         d10(i) = (d6 + d7).toFloat
@@ -114,13 +115,13 @@ class GNa(
   val rho1:T = 0.9f,
   val rho2:T = 0.999f
 )extends Layer{
-  var gamma = Array.ofDim[T](xn,IC,gs).map(_.map(_.map(_=> 1f)))
-  var beta  = Array.ofDim[T](xn,IC,gs)
+  var gamma = Array.ofDim[T](xn*IC*gs).map(_=> 1f)
+  var beta  = Array.ofDim[T](xn*IC*gs)
   val delta = 1e-8f
   val adam_gamma = new Adam(gamma.size,eps,rho1,rho2)
   val adam_beta  = new Adam(beta.size,eps,rho1,rho2)
-  var dgamma = Array.ofDim[T](xn,IC,gs)
-  var dbeta  = Array.ofDim[T](xn,IC,gs)
+  var dgamma = Array.ofDim[T](xn*IC*gs)
+  var dbeta  = Array.ofDim[T](xn*IC*gs)
  
   
   def forward(d:Array[T]) : Array[T] = {
@@ -166,9 +167,11 @@ class GNa(
       }
 
       for(ch <- 0 until IC;j <- 0 until gs;i <- 0 until W*H/gs){
+        val date = x.size
         val head = ch * W * H
         val ghead = W*H/gs * j
-        y(k)(head+ghead+i) = gamma(k)(ch)(j)*t_xhat(k)(head+ghead+i)+beta(k)(ch)(j)
+        val soeji = date*k+head+ghead+i
+        y(k)(head+ghead+i) = gamma(soeji)*t_xhat(k)(head+ghead+i)+beta(soeji)
       }
     }
     y.toArray
@@ -176,54 +179,53 @@ class GNa(
 
   override def backward(ds:Array[Array[T]]):Array[Array[T]]={
     var dx = Array.ofDim[T](ds.size,ds(0).size)
-    var d2 = Array.ofDim[T](xn,ds(0).size)
-    var d3 = Array.ofDim[T](xn,ds(0).size)
-    var d4 = Array.ofDim[T](xn,ds(0).size)
     
-    for(i<- 0 until ds.size){
-      for(ch <- 0 until IC){
-        val head = ch * W * H
-        for(j<-0 until gs){
-          val ghead = W*H/gs * j
-          for(k<- 0 until W*H/gs){
-            dbeta(i)(ch)(j)     += ds(i)(head+ghead+k)
-            dgamma(i)(ch)(j)    += ds(i)(head+ghead+k)* t_xhat(k)(head+ghead+k)
-            d2(i)(head+ghead+k) += gamma(i)(ch)(j)*ds(i)(head+ghead+k)
-            d3(i)(head+ghead+k) += d2(i)(head+ghead+k)/t_sigma(i)(ch)(j)
-            d4(i)(head+ghead+k) += t_myu(i)(ch)(j) * d2(i)(head+ghead+k)
-          }
-
-
-
-
-          
-
-
-
-
-        }
-
-
-
-
-
+    val date = IC*W*H
+    for(i<- 0 until ds.size;ch <- 0 until IC;j<-0 until gs){
+      var d2 = Array.ofDim[T](xn,IC,gs)
+      val head = ch * W * H
+      val ghead = W*H/gs * j
+      for(k<- 0 until W*H/gs){
+        val soeji = date*k+head+ghead+k
+        dbeta(soeji)  += ds(i)(head+ghead+k)
+        dgamma(soeji) += ds(i)(head+ghead+k)* t_xhat(k)(head+ghead+k)
+        d2(i)(ch)(j)  += gamma(soeji)    * ds(i)(head+ghead+k)
       }
 
+      val d3 = d2(i)(ch)(j) / t_sigma(i)(ch)(j)
+      val d4 = t_myu(i)(ch)(j) * d2(i)(ch)(j)
+
+      val d5 = -d4/(t_sigma(i)(ch)(j)*t_sigma(i)(ch)(j))
+      val d6 = d5 /(2*t_sigma(i)(ch)(j))
+
+      val d7 = d6 / (W*H/gs)
+      var d11 = Array.ofDim[T](IC,gs)
+
+      for(k<- 0 until W*H/gs){
+
+        val xmyu = t_xhat(i)(head+ghead+k)*t_sigma(i)(ch)(j)
+        val d8   = 2*xmyu*d7
+        d11(ch)(j) += -1*(d3+d8)
+      }
+
+      for(k<- 0 until W*H/gs){
+
+        val xmyu = t_xhat(i)(head+ghead+k)*t_sigma(i)(ch)(j)
+        val d9   = d3+2*xmyu*d7
+        dx(i)(head+ghead+k)=d9+d11(ch)(j)/ (W*H/gs)
+      }
     }
-
-
-
-
+    dx
   }
   def update() {
-    /*adam_beta.update(beta, dbeta)
+    adam_beta.update(beta, dbeta)
     adam_gamma.update(gamma, dgamma)
-    reset()*/
+    reset()
   }
 
   def reset() {
-    dgamma = Array.ofDim[T](xn,IC,gs)
-    dbeta  = Array.ofDim[T](xn,IC,gs)
+    dgamma = Array.ofDim[T](xn*IC*gs)
+    dbeta  = Array.ofDim[T](xn*IC*gs)
   }
 
 }
@@ -244,7 +246,7 @@ object test{
 
     val gn = new GNa(4,2,2,2)
 
-    gn.forward(xs)
+    gn.backward(xs)
   }
 
 }
