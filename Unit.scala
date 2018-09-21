@@ -8,14 +8,15 @@ l134-262:Convolition3D
  */
 
 class Affine(val xn: Int, val yn: Int,
-  val eps:T= 0.001, val rho1:T = 0.9, val rho2:T= 0.999) extends Layer {
+  val eps:T= 0.001f, val rho1:T = 0.9f, val rho2:T= 0.999f) extends Layer {
   val rand = new scala.util.Random(0)
 
-  var W = Array.ofDim[T](xn * yn).map(_ => rand.nextGaussian * 0.01:T)
+  var W = Array.ofDim[T](xn * yn).map(_ => (rand.nextGaussian * 0.01).toFloat)
   var b = Array.ofDim[T](yn)
   var dW = Array.ofDim[T](xn * yn)
   var db = Array.ofDim[T](yn)
   var n = 0
+  var st = new Stack[Array[T]]()
 
   def windex(i: Int, j: Int) = i * xn + j
 
@@ -32,24 +33,48 @@ class Affine(val xn: Int, val yn: Int,
     x
   }
 
-  def forward(x: Array[T]) = {
+  def forward(x: Array[T]):Array[T] = {
     push(x)
-    val y = Array.ofDim[T](yn)
+    var y = Array.ofDim[T](yn)
     for (i <- 0 until yn) {
       for (j <- 0 until xn) {
-        y(i) += W(windex(i, j)) * x(j)
+        y(i) += (W(windex(i, j)) * x(j)).toFloat
       }
       y(i) += b(i)
     }
     y
   }
 
-  def backward(d: Array[T]) = {
+  override def forward(xs:Array[Array[T]]):Array[Array[T]]={
+    val xd = Array.ofDim[T](xs.size*xs(0).size)
+    
+    for(i <- 0 until xs.size;j <- 0 until xs(0).size){
+      xd(j*xs.size+i) = xs(i)(j)
+      println(i,j)
+    }
+    println("!!")
+    st.push(xd)
+    var y = Array.ofDim[T](xs.size,yn)
+    var result = Array.ofDim[T](xs.size*xs(0).size)
+   
+    BLAS.matmul(W,xd,result,xn,yn,xn)
+    println("!!!")
+    println(result.size)
+    println()
+    for(d <- 0 until xs.size; i<- 0 until xn;j<- 0 until yn){
+      println(d,i,j,":",d*yn+windex(i,j))
+
+      y(d)(windex(i,j)) = result(d*yn+windex(i,j)) + b(j)
+    }
+    y
+  }
+
+  def backward(d: Array[T]):Array[T] = {
     val x = pop()
     n += 1
 
     for (i <- 0 until yn; j <- 0 until xn) {
-      dW(windex(i, j)) += d(i) * x(j)
+      dW(windex(i, j)) += (d(i) * x(j)).toFloat
     }
 
     for (i <- 0 until yn) {
@@ -58,11 +83,33 @@ class Affine(val xn: Int, val yn: Int,
 
     val dx = Array.ofDim[T](xn)
     for (j <- 0 until yn; i <- 0 until xn) {
-      dx(i) += W(windex(j, i)) * d(j)
+      dx(i) +=( W(windex(j, i)) * d(j)).toFloat
     }
 
     dx
   }
+/*
+  override def backward(ds:Array[Array[T]]):Array[Array[T]]={
+    val x = pop()
+
+    for(t <- 0 until ds.size){
+
+      for (i <- 0 until yn; j <- 0 until xn) {
+        dW(windex(i,j)) += (ds(t)(i) * x(j)).toFloat
+      }
+
+      for (i <- 0 until yn) {
+        db(i) += ds(t)(i)
+      }
+
+      val dx = Array.ofDim[T](xn)
+      for (j <- 0 until yn; i <- 0 until xn) {
+        dx(i) +=( W(windex(j, i)) * ds(t)(j)).toFloat
+      }
+    }
+
+    dx
+  }*/
 
   def update() {
     for (i <- 0 until dW.size) {
@@ -84,7 +131,7 @@ class Affine(val xn: Int, val yn: Int,
     adam_b.update(b, db)
   }
 
-  var lr = 0.001:T
+  var lr = 0.001f
 
   def update_sgd() {
     for (i <- 0 until W.size) {
@@ -98,10 +145,10 @@ class Affine(val xn: Int, val yn: Int,
 
   def reset() {
     for (i <- 0 until dW.size) {
-      dW(i) = 0d
+      dW(i) = 0f
     }
     for (i <- 0 until db.size) {
-      db(i) = 0d
+      db(i) = 0f
     }
     xs = List[Array[T]]()
     n = 0
@@ -128,28 +175,28 @@ class Affine(val xn: Int, val yn: Int,
 
   override def load(fn: String) {
     val f = scala.io.Source.fromFile(fn).getLines.toArray
-    W = f(0).split(",").map(_.toDouble).toArray
-    b = f(1).split(",").map(_.toDouble).toArray
+    W = f(0).split(",").map(_.toFloat).toArray
+    b = f(1).split(",").map(_.toFloat).toArray
   }
 }
 
 class Convolution3D(
   val KW:Int,val IH:Int,val IW:Int,val IC:Int,val OC:Int,
   val ss:Int=1,
-  val e:T = 0.01:T,
-  val p1:T = 0.9:T)extends Layer {
+  val e:T = 0.01f,
+  val p1:T = 0.9f)extends Layer {
   val OH = 1 + (IH-KW)/ss //IH - KW + 1
   val OW = 1 + (IW-KW)/ss // w - kw + 1
   val rand = new scala.util.Random(0)
   var t=0
-  var p1_t=1d
-  var p2_t=1d
-  var K = Array.ofDim[T](OC,IC,KW*KW).map(_.map(_.map(a => rand.nextGaussian*0.01)))
+  var p1_t=1f
+  var p2_t=1f
+  var K = Array.ofDim[T](OC,IC,KW*KW).map(_.map(_.map(a => rand.nextGaussian.toFloat*0.01f)))
   var V_D = List[Array[T]]()
   var D_K = Array.ofDim[T](OC,IC,KW*KW)
   var s = Array.ofDim[T](OC,IC,KW*KW)
   var r = Array.ofDim[T](OC,IC,KW*KW)
-  var n = 0d
+  var n = 0f
 
   def iindex(i:Int, j:Int, k:Int) = i * IH*IW + j * IW + k
   def oindex(i:Int, j:Int, k:Int) = i * OH*OW + j * OW + k
@@ -162,7 +209,7 @@ class Convolution3D(
     val Z = Array.ofDim[T](OC*OH*OW)//1 + (IW-KW)/ss)
 
     for(i<-0 until OC ; j<-0 until OH ; k<-0 until OW){
-      var s = 0d
+      var s = 0f
       for(l<-0 until IC ; m<-0 until KW ; n<-0 until KW){
         s +=  V(iindex(l,j*ss+m,k*ss+n)) * K(i)(l)(m*KW+n)
       }
@@ -174,10 +221,10 @@ class Convolution3D(
   def backward(G:Array[T]) = {
 
     val x = pop()
-    n += 1d
+    n += 1f
 
     for(i<-0 until OC ;  j<-0 until IC ; k<-0 until KW ; l<-0 until KW){
-      var s = 0d
+      var s = 0f
       for(m<-0 until  OH ; n<-0 until OW){
         s += G(oindex(i,m,n)) * x(iindex(j,m*ss+k,n*ss+l))
       }
@@ -185,10 +232,10 @@ class Convolution3D(
       D_K(i)(j)(k*KW+l) = s
     }
 
-    val dV = Array.ofDim[Double](IC * IH * IW)
+    val dV = Array.ofDim[T](IC * IH * IW)
 
     for(i<-0 until IC ; j<-0 until IH ; k<-0 until IW){
-      var s1=0d
+      var s1=0f
       for(l <- math.max((j-KW)/ss,0) until math.min(j/ss+1,OH) ; m <- 0 until KW){
         if(j==l*ss+m){
           for(n <- math.max((k-KW)/ss,0) until math.min(k/ss+1,OW) ; p<-0 until KW){
@@ -208,8 +255,8 @@ class Convolution3D(
     for(i<-0 until OC ; j<-0 until IC ; k<-0 until KW*KW){
       D_K(i)(j)(k) = D_K(i)(j)(k)/n
     }
-    val p2 = 0.999
-    val delta = 0.00000001
+    val p2 = 0.999f
+    val delta = 0.00000001f
 
     var s_h = Array.ofDim[T](OC,IC,KW*KW)
     var r_h = Array.ofDim[T](OC,IC,KW*KW)
@@ -220,7 +267,7 @@ class Convolution3D(
     p2_t = p2 * p2_t
 
     for(i<-0 until OC ; j<-0 until IC ; k<-0 until KW*KW){
-      var D_s = 0d//ΔΘ
+      var D_s = 0f//ΔΘ
 
       s(i)(j)(k) = p1*s(i)(j)(k)+(1-p1)*D_K(i)(j)(k)
       r(i)(j)(k) = p2*r(i)(j)(k)+(1-p2)*D_K(i)(j)(k)*D_K(i)(j)(k)
@@ -228,16 +275,16 @@ class Convolution3D(
       s_h(i)(j)(k) = s(i)(j)(k)/(1-p1_t)
       r_h(i)(j)(k) = r(i)(j)(k)/(1-p2_t)
 
-      D_s = -1*e*s_h(i)(j)(k)/(math.sqrt(r_h(i)(j)(k))+delta)
+      D_s = -1*e*s_h(i)(j)(k)/(math.sqrt(r_h(i)(j)(k))+delta).toFloat
       K(i)(j)(k) = K(i)(j)(k) + D_s
      
     }
-    n=0d
+    n=0f
     reset()
   }
 
   def update2(){
-    val lr = 0.9
+    val lr = 0.9f
     for(i<-0 until OC ; j<-0 until IC ; k<-0 until KW*KW)
       K(i)(j)(k) -= lr * D_K(i)(j)(k)
     reset()
@@ -261,7 +308,7 @@ class Convolution3D(
 
   override def load(fn:String) {
     val f = scala.io.Source.fromFile(fn).getLines.toArray
-    val tmp = f(0).split(",").map(_.toDouble).toArray
+    val tmp = f(0).split(",").map(_.toFloat).toArray
     for(i <- 0 until OC ; j <- 0 until IC ; k <- 0 until KW*KW) {
       K(i)(j)(k) = tmp(i*IC*KW*KW+j*KW*KW+k)
     }
@@ -377,14 +424,13 @@ class Pooling(val BW: Int, val IC: Int, val IH: Int, val IW: Int) extends Layer 
   }
 
   def iindex(i: Int, j: Int, k: Int) = i * IH * IW + j * IW + k
-
   def oindex(i: Int, j: Int, k: Int) = i * OH * OW + j * OW + k
 
   def forward(X: Array[T]) = {
     val mask = push(Array.ofDim[T](IC * IH * IW))
     val Z = Array.ofDim[T](OC * OH * OW)
     for (i <- 0 until OC; j <- 0 until OH; k <- 0 until OW) {
-      var v = Double.NegativeInfinity
+      var v = Float.NegativeInfinity
       var row_max = -1
       var col_max = -1
       for (m <- 0 until BW; n <- 0 until BW if v < X(iindex(i, j * BW + m, k * BW + n))) {
@@ -415,7 +461,7 @@ class Pooling(val BW: Int, val IC: Int, val IH: Int, val IW: Int) extends Layer 
     masks = List[Array[T]]()
   }
 }
-class Dropout(var dr: Double) extends Layer {
+class Dropout(var dr:T) extends Layer {
   var masks = List[Array[T]]()
 
   def push(mask: Array[T]) = {
@@ -438,7 +484,7 @@ class Dropout(var dr: Double) extends Layer {
       val mask = push(Array.ofDim[T](x.size))
       for (i <- 0 until x.size) {
         if (rand.nextDouble > dr) {
-          mask(i) = 1d
+          mask(i) = 1f
         }
       }
       x.zip(mask).map { case (a, b) => a * b }.toArray
@@ -447,7 +493,7 @@ class Dropout(var dr: Double) extends Layer {
 
   def backward(d: Array[T]) = {
     val mask = pop()
-    (0 until d.size).map(i => if (mask(i) > 0) d(i) else 0d).toArray
+      (0 until d.size).map(i => if (mask(i) > 0) d(i) else 0f).toArray
   }
 
   def update() {
@@ -502,9 +548,9 @@ class ZeroPadding(val IC: Int, val IH: Int, val IW: Int, P: Int) extends Layer {
 
 
 class Adam(val n: Int,
-  val eps:T= 0.0002:T,
-  val rho1:T= 0.5:T,
-  val rho2:T= 0.999:T) extends layerType {
+  val eps:T= 0.0002f,
+  val rho1:T= 0.5f,
+  val rho2:T= 0.999f){
 
   val delta = 1e-8
   var rho1t = 1:T
@@ -522,7 +568,7 @@ class Adam(val n: Int,
       s(i) = rho1 * s(i) + (1 - rho1) * dK(i)
       r(i) = rho2 * r(i) + (1 - rho2) * dK(i) * dK(i)
       val d = (s(i) * rho1tr) / (math.sqrt(r(i) * rho2tr) + delta)
-      K(i) = K(i) - eps * d
+      K(i) = (K(i) - eps * d).toFloat
     }
   }
 }
@@ -545,9 +591,9 @@ class Softplus() extends Layer {
     y
   }
 
-  def softplus(x:T) = x + math.log(1d + math.exp(-x)):T
+  def softplus(x:T) = x + math.log(1f + math.exp(-x)).toFloat
 
-  def sigmoid(x:T) = 1 / (1d + math.exp(-x)):T
+  def sigmoid(x:T) = 1 / (1f + math.exp(-x)).toFloat
 
   def forward(x: Array[T]) = {
     push(x)
@@ -627,10 +673,10 @@ class lstm(
     val b_ot = L.backwards(outputGate, ds.zip(tanhList.pop()).map { case (a, b) => a * b })
     val b_tanh = t.backward(ds.zip(oList.pop()).map { case (a, b) => a * b })
     val bc = cList.pop().zip(b_tanh).map { case (a, b) => a + b }
-    val bf = L.backwards(forgetGate, cList.head.zip(bc).map { case (a, b) => a * b })
-    val m = cList.push(fList.head.zip(bc).map { case (a, b) => a * b })
-    val bh_hat = L.backwards(hiddenGate, bc.zip(itList.pop).map { case (a, b) => a * b })
-    val bi = L.backwards(inputGate, bc.zip(h_hatList.head).map { case (a, b) => a * b })
+    val bf = L.backwards(forgetGate,cList.head.zip(bc).map { case (a, b) => (a * b).toFloat})
+    val m = cList.push(fList.head.zip(bc).map { case (a, b) => (a * b).toFloat })
+    val bh_hat = L.backwards(hiddenGate,bc.zip(itList.pop).map { case (a,b) => (a*b).toFloat})
+    val bi = L.backwards(inputGate,bc.zip(h_hatList.head).map { case (a,b) => (a*b).toFloat})
 
     var dxh = List[T]()
 
@@ -681,13 +727,13 @@ class lstm(
 
 
 class softMax() extends Layer {
-  val Es = new Stack[Array[Double]]()
+  val Es = new Stack[Array[T]]()
 
   def forward(xs: Array[T]) = {
 
-    val ex = xs.map(math.exp(_))
+    val ex = xs.map(math.exp(_).toFloat)
     Es.push(ex)
-    val sum = 1d / ex.sum
+    val sum = 1f / ex.sum
     val y = ex.map(_ * sum)
     y
   }
