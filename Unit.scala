@@ -16,7 +16,7 @@ class Affine(val xn: Int, val yn: Int,
   var dW = Array.ofDim[T](xn * yn)
   var db = Array.ofDim[T](yn)
   var n = 0
-  var st = new Stack[Array[T]]()
+  var st = new Stack[Array[Array[T]]]()
 
   def windex(i: Int, j: Int) = i * xn + j
 
@@ -50,21 +50,17 @@ class Affine(val xn: Int, val yn: Int,
     
     for(i <- 0 until xs.size;j <- 0 until xs(0).size){
       xd(j*xs.size+i) = xs(i)(j)
-      println(i,j)
     }
-    println("!!")
-    st.push(xd)
-    var y = Array.ofDim[T](xs.size,yn)
-    var result = Array.ofDim[T](xs.size*xs(0).size)
-   
-    BLAS.matmul(W,xd,result,xn,yn,xn)
-    println("!!!")
-    println(result.size)
-    println()
-    for(d <- 0 until xs.size; i<- 0 until xn;j<- 0 until yn){
-      println(d,i,j,":",d*yn+windex(i,j))
 
-      y(d)(windex(i,j)) = result(d*yn+windex(i,j)) + b(j)
+    st.push(xs)
+    var y = Array.ofDim[T](xs.size,yn)
+    var result = Array.ofDim[T](xs.size*yn)
+  
+    BLAS.matmul(W,xd,result,yn,xs.size,xn)
+ 
+    for(j<- 0 until yn; d <- 0 until xs.size){
+    
+      y(d)(j) = result(j*xs.size+d)+b(j)
     }
     y
   }
@@ -76,40 +72,40 @@ class Affine(val xn: Int, val yn: Int,
     for (i <- 0 until yn; j <- 0 until xn) {
       dW(windex(i, j)) += (d(i) * x(j)).toFloat
     }
-
-    for (i <- 0 until yn) {
-      db(i) += d(i)
-    }
-
+    for (i <- 0 until yn) {db(i) += d(i)}
     val dx = Array.ofDim[T](xn)
     for (j <- 0 until yn; i <- 0 until xn) {
       dx(i) +=( W(windex(j, i)) * d(j)).toFloat
     }
-
     dx
   }
-/*
+  def transposed_matrix(a:Array[T],h:Int,w:Int)={
+    var trans = Array.ofDim[Float](a.size)
+    
+    for(i <- 0 until h;j <- 0 until w){
+      trans(j*h+i) = a(i*w+j)
+    }
+
+    trans
+  }
+
   override def backward(ds:Array[Array[T]]):Array[Array[T]]={
-    val x = pop()
+    val x   = st.pop()
+    val dxx  = Array.ofDim[T](ds.size*xn)
+    val dx  = Array.ofDim[T](ds.size,xn)
+    val x_t = transposed_matrix(x.flatten,x.size,x(0).size)//行列の順で！
+    val ds_f = ds.flatten
+    BLAS.matmul(transposed_matrix(ds_f,ds.size,ds(0).size),x.flatten,dW,xn,yn,ds.size)
+    BLAS.matmul(transposed_matrix(W,xn,yn),transposed_matrix(ds_f,ds.size,ds(0).size),dxx,xn,ds.size,yn)
 
-    for(t <- 0 until ds.size){
-
-      for (i <- 0 until yn; j <- 0 until xn) {
-        dW(windex(i,j)) += (ds(t)(i) * x(j)).toFloat
-      }
-
-      for (i <- 0 until yn) {
-        db(i) += ds(t)(i)
-      }
-
-      val dx = Array.ofDim[T](xn)
-      for (j <- 0 until yn; i <- 0 until xn) {
-        dx(i) +=( W(windex(j, i)) * ds(t)(j)).toFloat
-      }
+    for (t<- 0 until ds.size;i <- 0 until yn) {
+      db(i) += ds(t)(i)
+      dx(t)(i) = dxx(i*(xn+1)+t)
     }
 
     dx
-  }*/
+  }
+
 
   def update() {
     for (i <- 0 until dW.size) {

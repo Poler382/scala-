@@ -1,6 +1,6 @@
 import kata._
 abstract class Layer {
-  type T = Double
+  type T = Float
   var is_test = false
   def forward(x: Array[T]): Array[T]
   def backward(x: Array[T]): Array[T]
@@ -15,13 +15,13 @@ abstract class Layer {
   def save(fn: String) {}
   def load(fn: String) {}
 }
-
+/*
 abstract class layerType{
-  type T = Double
-}
+  type T = Float
+}*/
 
 object kata{
-  type T = Double
+  type T = Float
   //すべてのファイルにimportする
 }
 
@@ -88,16 +88,14 @@ class Image(){
       else if(im % 3 == 2){
         B ::= image(im)
       }
-
     }
 
     Array(R.reverse.toArray,G.reverse.toArray,B.reverse.toArray)
 
   }
-
-    def RGBtoGray (image:Array[T],h:Int,w:Int)={
+  def RGBtoGray (image:Array[T],h:Int,w:Int)={
     var gray = List[T]()
-    var sum= 0d
+    var sum= 0:T
     /*
      rgbrgb...と並ぶ配列を各画素毎に合計をとりグレースケールを取る
      Array(gray,gray,gray)の一次元配列で返す
