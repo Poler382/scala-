@@ -176,6 +176,124 @@ class Affine(val xn: Int, val yn: Int,
   }
 }
 
+
+
+class Convolution_Matver(
+  val KW:Int,
+  val KH:Int,
+  val IH:Int,
+  val IW:Int,
+  val IC:Int,
+  val OC:Int,
+  val ss:Int=1,
+  val e:T = 0.01f,
+  val p1:T = 0.9f)extends Layer {
+  val OH = 1 + (IH-KH)/ss //IH - KW + 1
+  val OW = 1 + (IW-KW)/ss // w - kw + 1
+  val rand = new scala.util.Random(0)
+  var t=0
+  var p1_t=1f
+  var p2_t=1f
+  var K = Array.ofDim[T](OC*IC*KW*KH).map(a => rand.nextGaussian.toFloat*0.01f)
+  var V_D = List[Array[T]]()
+  var D_K = Array.ofDim[T](OC*IC*KW*KH)
+  var s = Array.ofDim[T](OC*IC*KW*KH)
+  var r = Array.ofDim[T](OC*IC*KW*KH)
+  var n = 0f
+
+  var st = new Stack[Array[T]]()
+  var Bst = new Stack[Array[Array[T]]]()
+
+  def iindex(c:Int,i:Int,j:Int,kh:Int,kw:Int) = c*IH*IW + i*IW+j +kh*IW+kw
+
+
+  def change_V(V:Array[T])={
+    var RV = Array.ofDim[Float](KW*KH*IC*(IW-KW+1)*(IH-KH+1))
+    var p=0
+    for(c <- 0 until IC;i <- 0 until OH;j <- 0 until OW){
+      for(kh<- 0 until KH;kw <- 0 until KW){
+        var vnum = iindex(c,i,j,kh,kw)
+        RV(p)=V(vnum)
+        p+=1
+      }
+    }
+    RV
+  }
+
+
+  def transposed_matrix(a:Array[T],h:Int,w:Int)={
+    var trans = Array.ofDim[Float](a.size)
+    
+    for(i <- 0 until h;j <- 0 until w){
+      trans(j*h+i) = a(i*w+j)
+    }
+    trans
+  }
+
+  def forward(V:Array[T]):Array[T]={
+    
+    val re_V = transposed_matrix(change_V(V),KW*KH*IC,OW*OH)
+    st.push(change_V(V))
+    var y = Array.ofDim[Float](OC*OW*OH)
+    BLAS.matmul(re_V,K,y,OW*OH,OC,KW*KH*IC)
+    y
+
+  }
+
+  override def forward(Vs:Array[Array[T]]):Array[Array[T]]={
+    Bst.push(Vs)
+    var Vlist = List[Array[T]]()
+    for(d <- Vs){
+      Vlist ::= transposed_matrix(change_V(d),KW*KH*IC,OW*OH)
+    }
+    var ys = Array.ofDim[Float](Vs.size*OC*OW*OH)
+
+    BLAS.matmul(Vlist.toArray.flatten,K,ys,OW*OH*Vs.size,OC,KW*KH*IC)
+    var ry = Array.ofDim[Float](Vs.size,OW*OH*OC)
+   // ys.foreach(println(_))
+    for(d<- 0 until Vs.size;i <- 0 until OC;j <- 0 until OW*OH){
+      ry(d)(i*OW*OH+j) = ys(d*OC*OH*OW+i*OW*OH+j)
+     // println(d,j,i,i*OW*OH+j,d*OC*OH*OW+i*OW*OH+j)
+    }
+
+    ry
+  }
+  def change_G(G:Array[T])= transposed_matrix(G,OC,OH*OW)
+
+/*
+matmul は最後が消えるところ！
+*/
+
+  def backward(G:Array[T]):Array[T]={
+    val V_D = st.pop()
+    val G_D=change_G(G)
+    var DF_D = Array.ofDim[T](KW*KH*IC*OC)
+    BLAS.matmul(V_D,G_D,DF_D,KW*KH*IC,OC,OH*OW) 
+
+    var DX_D = Array.ofDim[T](OW*OH*IC*KW*KH)
+    BLAS.matmul(G_D,transposed_matrix(K,OC,KW*KH*IC),DX_D,OW*OH,OC,IC*KW*KH)
+
+    D_K = transposed_matrix(DF_D,OC,KW*KH*IC)
+
+    DF_D
+  }
+  override def backward(Gs:Array[Array[T]]):Array[Array[T]]={Gs}
+  def update(){}
+  def reset() {
+   
+  }
+
+  override def save(fn:String) {
+   
+  }
+
+  override def load(fn:String) {
+    
+  }
+
+}
+
+
 class Convolution3D(
   val KW:Int,val IH:Int,val IW:Int,val IC:Int,val OC:Int,
   val ss:Int=1,
