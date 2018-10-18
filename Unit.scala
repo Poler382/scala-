@@ -7,6 +7,7 @@ l8-l132:Affine
 l134-262:Convolition3D
  */
 
+//mine
 class Affine(val xn: Int, val yn: Int,
   val eps:T= 0.001f, val rho1:T = 0.9f, val rho2:T= 0.999f) extends Layer {
   val rand = new scala.util.Random(0)
@@ -15,13 +16,12 @@ class Affine(val xn: Int, val yn: Int,
   var b = Array.ofDim[T](yn)
   var dW = Array.ofDim[T](xn * yn)
   var db = Array.ofDim[T](yn)
-  var n = 0
+  var n = 0f
   var st = new Stack[Array[Array[T]]]()
-
-  def windex(i: Int, j: Int) = i * xn + j
-
   var xs = List[Array[T]]()
 
+  def windex(i: Int, j: Int) = i * xn + j
+  
   def push(x: Array[T]) = {
     xs ::= x;
     x
@@ -35,6 +35,7 @@ class Affine(val xn: Int, val yn: Int,
 
   def forward(x: Array[T]):Array[T] = {
     push(x)
+    
     var y = Array.ofDim[T](yn)
     for (i <- 0 until yn) {
       for (j <- 0 until xn) {
@@ -46,20 +47,13 @@ class Affine(val xn: Int, val yn: Int,
   }
 
   override def forward(xs:Array[Array[T]]):Array[Array[T]]={
-    val xd = Array.ofDim[T](xs.size*xs(0).size)
-    
-    for(i <- 0 until xs.size;j <- 0 until xs(0).size){
-      xd(j*xs.size+i) = xs(i)(j)
-    }
-
+    val xd = transposed_matrix(xs.flatten.clone,xs.size,xs(0).size)
     st.push(xs)
     var y = Array.ofDim[T](xs.size,yn)
     var result = Array.ofDim[T](xs.size*yn)
-  
     BLAS.matmul(W,xd,result,yn,xs.size,xn)
- 
+
     for(j<- 0 until yn; d <- 0 until xs.size){
-    
       y(d)(j) = result(j*xs.size+d)+b(j)
     }
     y
@@ -68,7 +62,6 @@ class Affine(val xn: Int, val yn: Int,
   def backward(d: Array[T]):Array[T] = {
     val x = pop()
     n += 1
-
     for (i <- 0 until yn; j <- 0 until xn) {
       dW(windex(i, j)) += (d(i) * x(j)).toFloat
     }
@@ -90,25 +83,24 @@ class Affine(val xn: Int, val yn: Int,
   }
 
   override def backward(ds:Array[Array[T]]):Array[Array[T]]={
-    val x   = st.pop()
-    val dxx  = Array.ofDim[T](ds.size*xn)
-    val dx  = Array.ofDim[T](ds.size,xn)
+    val x   = st.pop().reverse
+    n += 1
+    val dxx  = Array.ofDim[T](ds.size*yn)//答えの保持用
+    val dx  = Array.ofDim[T](ds.size,yn)//値を返す用
     val x_t = transposed_matrix(x.flatten,x.size,x(0).size)//行列の順で！
     val ds_f = ds.flatten
-    BLAS.matmul(transposed_matrix(ds_f,ds.size,ds(0).size),x.flatten,dW,xn,yn,ds.size)
+    BLAS.matmul(transposed_matrix(ds_f,ds.size,ds(0).size),x.flatten,dW,yn,xn,ds.size)
     BLAS.matmul(transposed_matrix(W,xn,yn),transposed_matrix(ds_f,ds.size,ds(0).size),dxx,xn,ds.size,yn)
 
-    for (t<- 0 until ds.size;i <- 0 until yn) {
+    for(t<- 0 until ds.size;i <- 0 until yn) {
       db(i) += ds(t)(i)
-      dx(t)(i) = dxx(i*(xn+1)+t)
+      dx(t)(i) = dxx(t+dx.size*i)
     }
-
     dx
   }
 
-
   def update() {
-    for (i <- 0 until dW.size) {
+    for (i <- 0 until dW.size){
       dW(i) /= n
     }
     for (i <- 0 until db.size) {
@@ -117,7 +109,6 @@ class Affine(val xn: Int, val yn: Int,
     update_adam()
     reset()
   }
-
 
   var adam_W = new Adam(W.size, eps, rho1, rho2)
   var adam_b = new Adam(b.size, eps, rho1, rho2)
@@ -128,12 +119,10 @@ class Affine(val xn: Int, val yn: Int,
   }
 
   var lr = 0.001f
-
   def update_sgd() {
     for (i <- 0 until W.size) {
       W(i) -= lr * dW(i)
     }
-
     for (i <- 0 until b.size) {
       b(i) -= lr * db(i)
     }
@@ -186,9 +175,9 @@ class Convolution_Matver(
   val IC:Int,
   val OC:Int,
   val ss:Int=1,
-  val e:T = 0.01f,
-  val p1:T = 0.9f)extends Layer {
-  val OH = 1 + (IH-KH)/ss //IH - KW + 1
+  val eps:T= 0.001f, val rho1:T = 0.9f, val rho2:T= 0.999f
+)extends Layer {
+  val OH = 1 + (IH-KH)/ss // IH - KW + 1
   val OW = 1 + (IW-KW)/ss // w - kw + 1
   val rand = new scala.util.Random(0)
   var t=0
@@ -200,12 +189,10 @@ class Convolution_Matver(
   var s = Array.ofDim[T](OC*IC*KW*KH)
   var r = Array.ofDim[T](OC*IC*KW*KH)
   var n = 0f
-
   var st = new Stack[Array[T]]()
   var Bst = new Stack[Array[Array[T]]]()
 
   def iindex(c:Int,i:Int,j:Int,kh:Int,kw:Int) = c*IH*IW + i*IW+j +kh*IW+kw
-
 
   def change_V(V:Array[T])={
     var RV = Array.ofDim[Float](KW*KH*IC*(IW-KW+1)*(IH-KH+1))
@@ -219,7 +206,6 @@ class Convolution_Matver(
     }
     RV
   }
-
 
   def transposed_matrix(a:Array[T],h:Int,w:Int)={
     var trans = Array.ofDim[Float](a.size)
@@ -241,55 +227,123 @@ class Convolution_Matver(
   }
 
   override def forward(Vs:Array[Array[T]]):Array[Array[T]]={
-    Bst.push(Vs)
+   
     var Vlist = List[Array[T]]()
     for(d <- Vs){
       Vlist ::= transposed_matrix(change_V(d),KW*KH*IC,OW*OH)
     }
+    Bst.push(Vlist.toArray)
     var ys = Array.ofDim[Float](Vs.size*OC*OW*OH)
 
     BLAS.matmul(Vlist.toArray.flatten,K,ys,OW*OH*Vs.size,OC,KW*KH*IC)
     var ry = Array.ofDim[Float](Vs.size,OW*OH*OC)
-   // ys.foreach(println(_))
+  
     for(d<- 0 until Vs.size;i <- 0 until OC;j <- 0 until OW*OH){
       ry(d)(i*OW*OH+j) = ys(d*OC*OH*OW+i*OW*OH+j)
-     // println(d,j,i,i*OW*OH+j,d*OC*OH*OW+i*OW*OH+j)
     }
-
     ry
   }
   def change_G(G:Array[T])= transposed_matrix(G,OC,OH*OW)
 
-/*
-matmul は最後が消えるところ！
-*/
+  def change_dx(dx:Array[T])={
+    var Rdx = Array.ofDim[T](IC*IW*IH)
 
-  def backward(G:Array[T]):Array[T]={
-    val V_D = st.pop()
+    for(c <- 0 until IC;i <- 0 until OH;j <- 0 until OW;kh<- 0 until KH;kw <- 0 until KW){
+      var n = (c*OW*OH)+(i*OH+j)*OW*OH*IC+kh*KW+kw
+      var m = (c*IW*IH)+(i*IW+j)+kh*IW+kw
+      Rdx(m)+= dx(n)
+    }
+
+    Rdx
+  }
+
+  def change_dx3(dx:Array[T])={
+    var Rdx = Array.ofDim[T](IC*IW*IH)
+
+    for(i <- 0 until OH;j <- 0 until OW;kh<- 0 until KH;kw <- 0 until KW;c <- 0 until IC){
+      var n = (c*OW*OH)+(i*OH+j)*OW*OH*IC+kh*KW+kw
+      var m = (c*IW*IH)+(i*IW+j)+kh*IW+kw
+      Rdx(m)+= dx(n)
+    }
+
+    Rdx
+  }
+
+  def backward(G:Array[T])={
+    n +=1f
+    val X_D = st.pop()
+
     val G_D=change_G(G)
     var DF_D = Array.ofDim[T](KW*KH*IC*OC)
-    BLAS.matmul(V_D,G_D,DF_D,KW*KH*IC,OC,OH*OW) 
+    BLAS.matmul(X_D,G_D,DF_D,KW*KH*IC,OC,OH*OW)
+    D_K = transposed_matrix(DF_D,OC,KW*KH*IC)
+ 
 
     var DX_D = Array.ofDim[T](OW*OH*IC*KW*KH)
-    BLAS.matmul(G_D,transposed_matrix(K,OC,KW*KH*IC),DX_D,OW*OH,OC,IC*KW*KH)
+    BLAS.matmul(G_D,transposed_matrix(K,IC*KW*KW,OC),DX_D,OW*OH,IC*KW*KH,OC)
 
+    var dx = Array.ofDim[T](IW*IH*IC)
+     
+    change_dx3(DX_D)
+
+  }
+
+  override def backward(Gs:Array[Array[T]]):Array[Array[T]]={
+    n+= Gs.size
+    var X_DList =Bst.pop()
+    var G_DList = List[Array[T]]()
+    for(i <- 0 until Gs.size){
+      G_DList ::= change_G(Gs(i))
+    }
+
+    var DF_D = Array.ofDim[T](KW*KH*IC*OC)
+    BLAS.matmul(X_DList.flatten,G_DList.toArray.flatten,DF_D,KW*KH*IC,OC,OH*OW*Gs.size)
     D_K = transposed_matrix(DF_D,OC,KW*KH*IC)
+ 
 
-    DF_D
+    var DX_D = Array.ofDim[T](OW*OH*IC*KW*KH*Gs.size)
+    BLAS.matmul(G_DList.toArray.flatten,transposed_matrix(K,IC*KW*KW,OC),DX_D,OW*OH*Gs.size,IC*KW*KH,OC)
+
+    var dx = Array.ofDim[T](Gs.size,IW*IH*IC)
+    for(i <- 0 until Gs.size){
+      var ddx = Array.ofDim[T](OW*OH*IC*KW*KH)
+      for(j <- 0 until ddx.size){
+        ddx(j) = DX_D(i*ddx.size+j)    
+      }
+      dx(i) = change_dx3(ddx) 
+    }
+    dx
   }
-  override def backward(Gs:Array[Array[T]]):Array[Array[T]]={Gs}
-  def update(){}
+
+  def update()={
+    for (i <- 0 until D_K.size) {
+      D_K(i) /= n
+    }
+    update_adam()
+    reset()
+  }
+
+
+  var adam_K = new Adam(K.size, eps, rho1, rho2)
+  def update_adam() {
+    adam_K.update(K, D_K)
+  }
+
   def reset() {
-   
+    D_K = Array.ofDim[T](OC*IC*KH*KW)
+    st.reset
+    Bst.reset
+    n = 0
   }
+
 
   override def save(fn:String) {
    
   }
 
   override def load(fn:String) {
-    
   }
+
 
 }
 
@@ -666,7 +720,7 @@ class Adam(val n: Int,
   val rho1:T= 0.5f,
   val rho2:T= 0.999f){
 
-  val delta = 1e-8
+  val delta = 1e-5
   var rho1t = 1:T
   var rho2t = 1:T
   var s = Array.ofDim[T](n)
@@ -840,7 +894,7 @@ class lstm(
 
 
 
-class softMax() extends Layer {
+class SoftMax() extends Layer {
   val Es = new Stack[Array[T]]()
 
   def forward(xs: Array[T]) = {
